@@ -1,0 +1,13 @@
+fastapi==0.141.1
+uvicorn==0.52.4
+sqlalchemy==2.0.52
+aiomysql==0.3.2
+PyMySQL==1.2.0
+redis==8.1.0
+# MySQL 8 caching_sha2_password 认证需要，否则 aiomysql 报 RuntimeError
+cryptography==50.0.1
+passlib==1.7.4
+# passlib 1.7.4 is incompatible with bcrypt 5.x backend detection.
+bcrypt==4.0.1
+httpx
+python-dotenv
