@@ -1,13 +1,24 @@
+# ---------- Web 框架 ----------
 fastapi==0.141.1
 uvicorn==0.52.4
+
+# ---------- 数据库 ----------
 sqlalchemy==2.0.52
 aiomysql==0.3.2
 PyMySQL==1.2.0
-redis==8.1.0
-# MySQL 8 caching_sha2_password 认证需要，否则 aiomysql 报 RuntimeError
+# MySQL 8 的 caching_sha2_password 认证需要它，否则 aiomysql 报 RuntimeError
 cryptography==50.0.1
+
+# ---------- 缓存 ----------
+redis==8.1.0
+
+# ---------- 密码哈希 ----------
 passlib==1.7.4
-# passlib 1.7.4 is incompatible with bcrypt 5.x backend detection.
+# passlib 1.7.4 与 bcrypt 5.x 的版本探测不兼容，锁在 4.0.1
 bcrypt==4.0.1
-httpx
-python-dotenv
+
+# ---------- 调用 AI 服务 ----------
+httpx==0.28.1
+
+# ---------- 读取 .env ----------
+python-dotenv==1.2.3
