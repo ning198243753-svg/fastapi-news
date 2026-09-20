@@ -20,10 +20,15 @@
 
 - **Redis 缓存**：分类（1 天）、列表（2 分钟）、详情（10 分钟）、**认证信息（10 分钟 + 主动失效）**
   - 认证缓存让每个需登录的请求从 **2 条 SQL 降为 0 条**
-- **Redis 限流**：基于 `INCR` 原子操作的固定窗口限流，防止 AI 接口被刷（默认 10 次/60 秒）
+- **Redis 限流**：基于 `INCR` 原子操作的固定窗口限流，防止接口被刷
+  - AI 问答：每用户 10 次/60 秒
+  - 用户登录：每 IP 10 次/60 秒（防暴力猜密码）
 - **流式响应**：调用 AI 服务后逐块转发给前端，实现打字机效果
 - **多轮对话**：从数据库读取最近 N 轮历史拼进 prompt，AI 能记住上下文
 - **统一异常处理**：业务异常、数据库异常、校验异常统一响应格式
+- **健康检查**：`/health` 接口会真实探测 MySQL 和 Redis，依赖异常时返回 503
+- **应用生命周期管理**：用 `lifespan` 在启动时自检、关闭时释放连接池
+- **连接池健壮性**：`pool_recycle` + `pool_pre_ping`，避免 MySQL 空闲断连导致的随机报错
 
 ---
 
@@ -142,20 +147,31 @@ uvicorn main:app --reload
 
 | 变量 | 说明 | 示例 |
 |---|---|---|
+| `DEBUG` | 是否在错误响应里返回详细堆栈（**生产必须 false**） | `false` |
 | `DATABASE_URL` | 数据库连接串 | `mysql+aiomysql://root:pwd@localhost:3306/news_app?charset=utf8mb4` |
 | `DB_ECHO` | 是否打印 SQL 日志 | `true` / `false` |
+| `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `AI_API_KEY` | AI 服务密钥 | `sk-xxxx` |
 | `AI_BASE_URL` | AI 服务地址（OpenAI 兼容） | `https://xxx/v1` |
 | `AI_MODEL` | 模型名 | `deepseek-v4.1-flash` |
-| `AI_RATE_LIMIT` | 限流：窗口内最多次数 | `10` |
-| `AI_RATE_WINDOW` | 限流：窗口秒数 | `60` |
+| `AI_RATE_LIMIT` | AI 限流：窗口内最多次数 | `10` |
+| `AI_RATE_WINDOW` | AI 限流：窗口秒数 | `60` |
 | `AI_HISTORY_LIMIT` | 携带的历史轮数 | `10` |
 
 > 任何 **OpenAI 兼容**的 AI 服务都能用（阿里云百炼、DeepSeek、各类中转站），只需改上面 3 个 AI 变量。
 
+> ⚠️ **`DEBUG=true` 时，500 响应会带上完整 traceback（含文件路径、SQL 语句）**。
+> 这只适合开发环境，**上线必须设为 `false`**。
+
 ---
 
 ## 接口一览
+
+### 系统
+
+| 方法 | 路径 | 说明 | 需要登录 |
+|---|---|---|---|
+| GET | `/health` | 健康检查（探测 MySQL + Redis，异常时返回 503） | ❌ |
 
 ### 用户
 
@@ -270,16 +286,55 @@ data: Web 框架
 | **外键表名是单数** | `ForeignKey("user.id")` 而不是 `users.id` |
 | **所有模型要共享同一个 `Base`** | 否则跨表外键无法解析（`NoReferencedTableError`） |
 | **有 `alias` 就要配 `populate_by_name`** | 否则用字段名传参会报 `Field required` |
+| **MySQL 会断开空闲连接** | 默认 8 小时，必须配 `pool_recycle` + `pool_pre_ping`，否则服务跑几小时后随机报 `Lost connection` |
+| **`DEBUG=true` 会泄露内部信息** | 500 响应里会带 traceback（文件路径、SQL），上线必须关 |
+| **CORS 错误只出现在浏览器** | curl 能通、前端报错时，第一反应就该是 CORS |
+| **WSL 重启后 Redis 不会自启** | 需要手动 `sudo service redis-server start`，或在 `/etc/wsl.conf` 配 `[boot] command` |
 
 ---
 
 ## 后续计划
 
+- [x] ~~登录接口加限流（防暴力破解）~~
+- [x] ~~健康检查 `/health`~~
+- [x] ~~`lifespan` 管理应用生命周期~~
+- [x] ~~连接池 `pool_recycle` + `pool_pre_ping`~~
 - [ ] 接入 Alembic 管理数据库迁移
 - [ ] 补充接口测试（pytest + httpx）
+- [ ] 接入 CORS 白名单（目前是 `*`，仅适合本地开发）
+- [ ] 用 `response_model` 声明响应契约
 - [ ] 浏览量改为 Redis 计数 + 定时批量回写
-- [ ] 登录接口加限流（防暴力破解）
+- [ ] 结构化日志 + 请求 ID
 - [ ] Docker 一键部署
+- [ ] CI（GitHub Actions：跑测试 + lint）
+
+---
+
+## 工程化参考
+
+本项目目前是一个**功能完整的学习项目**，已具备：分层清晰、缓存设计、流式接口、统一异常、健康检查、限流。
+
+**与生产级项目的主要差距**：
+
+| 维度 | 现状 | 生产级需要 |
+|---|---|---|
+| 数据库迁移 | 手写 `schema.sql` | Alembic（可追溯、可回滚） |
+| 测试 | 无 | pytest（核心接口集成测试） |
+| 接口契约 | 手写 dict 返回 | `response_model` 声明 |
+| 日志 | SQL echo + print | 结构化日志 + 请求 ID + 集中收集 |
+| 监控 | 无 | Prometheus + 告警 |
+| 错误上报 | 手写异常处理 | Sentry |
+| CORS | `*`（仅本地开发） | 白名单 |
+| 部署 | 手动 uvicorn | Docker + CI/CD |
+| 权限 | 仅登录/未登录 | RBAC |
+
+**建议改造顺序**：
+
+1. 安全收尾：CORS 白名单、确认 `DEBUG=false`
+2. 规范：`pydantic-settings` 统一配置、`response_model`、Alembic
+3. 质量：pytest + ruff + 结构化日志
+4. 工程化：Docker + GitHub Actions CI
+5. 进阶：监控、链路追踪、幂等性、RBAC
 
 ---
 

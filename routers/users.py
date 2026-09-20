@@ -1,5 +1,5 @@
 from starlette import status
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from redis import Redis
 from config.db_config import get_session
 from config.redis_config import get_redis
@@ -9,9 +9,27 @@ from schemas.users import PasswordUpdate, UpdateUserInfo, UserDataResponse, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.authenticate import get_current_user
+from utils.ratelimit import check_rate_limit
 from utils.reseponse import sucess_response
 
 router = APIRouter(prefix="/api/user", tags=["users"])
+
+# 登录/注册的限流参数（防暴力猜密码 / 批量注册）
+LOGIN_RATE_LIMIT = 10        # 每窗口最多 10 次
+LOGIN_RATE_WINDOW = 60       # 窗口 60 秒
+
+
+def _client_ip(request: Request) -> str:
+    """取客户端 IP（登录限流按 IP 计数）
+
+    注意：如果前面有 Nginx 等反向代理，要读 X-Forwarded-For。
+    开发环境直接用 request.client.host 就行。
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 
 @router.post("/register")
 async def register_user(userReq: UserRequest, session: AsyncSession = Depends(get_session)):
@@ -25,8 +43,18 @@ async def register_user(userReq: UserRequest, session: AsyncSession = Depends(ge
     return response
 
 @router.post("/login")
-async def user_login(user_data:UserRequest,session:AsyncSession=Depends(get_session)):
-    user=await users.authenticate_user(user_data,session)
+async def user_login(
+    user_data: UserRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+):
+    # ★ 限流：按「客户端 IP」计数，防暴力猜密码
+    await check_rate_limit(
+        redis, "user_login", _client_ip(request), LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW
+    )
+
+    user = await users.authenticate_user(user_data, session)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="用户名或者密码错误")
     token = await users.create_user_token(session,userid=user.id)

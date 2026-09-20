@@ -29,3 +29,12 @@ Thumbs.db
 *.bak2
 *.bak3
 *.bak4
+*.p0bak
+*.orig
+*.rej
+
+# ---------- 环境变量（★ 真实密钥，绝不能提交）----------
+.env
+*.env
+.env.*
+*.env.*
