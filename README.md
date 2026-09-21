@@ -2,7 +2,7 @@
 
 基于 **FastAPI + MySQL + Redis** 的新闻资讯系统后端，提供用户认证、新闻浏览、收藏、浏览历史和 **AI 问答（流式输出）** 等能力。
 
-配套前端：[xwzx-news](https://github.com/ning198243753-svg)（Vue 3 + Vant）
+配套前端：[xwzx-news](https://github.com/ning198243753-svg/xw-news)（Vue 3 + Vant）
 
 ---
 
